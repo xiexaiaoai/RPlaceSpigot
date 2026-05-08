@@ -3,7 +3,6 @@ package me.xiaoai.rplace;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-
 import java.util.HashMap;
 import java.util.Objects;
 import java.util.UUID;
@@ -15,14 +14,14 @@ import java.util.UUID;
 并 定义画布边界坐标、默认恢复速度及全局奖励系数等核心变量。
 */
 public class RPlace extends JavaPlugin {
-
+    private static RPlace instance;
     public final HashMap<UUID, Integer> currentPoints = new HashMap<>();
     public final HashMap<UUID, Long> lastRecoverTime = new HashMap<>();
     public final HashMap<UUID, Integer> maxPointsMap = new HashMap<>();
     public final HashMap<UUID, Integer> recoverSpeedMap = new HashMap<>();
     public final HashMap<UUID, AdminMode> adminPlayers = new HashMap<>();
-    public final java.util.HashMap<java.util.UUID, Integer> placedCountMap = new java.util.HashMap<>();
-    public final java.util.HashMap<java.util.UUID, String> playerMessages = new java.util.HashMap<>();
+    public final HashMap<UUID, Integer> placedCountMap = new HashMap<>();
+    public final HashMap<UUID, String> playerMessages = new HashMap<>();
 
     public int defaultMaxPoints = 1;
     public int defaultRecoverSpeed = 60;
@@ -37,28 +36,14 @@ public class RPlace extends JavaPlugin {
 
     public enum AdminMode { OFF, BASIC, GOD }
 
-    /* 第二部分：插件启动逻辑
 
-    如果 插件执行启用流程
-    则 释放默认配置文件并初始化数据管理器加载本地存储
-    并 注册指令处理器（rp）及其参数补全器
-    并 挂载 RPlaceListener 监听器处理交互事件
+    public static RPlace getInstance() {
+        return instance;
+    }
 
-    最后 向控制台输出系统就绪的彩色信息。
-    */
-/* 第二部分：插件启动逻辑（包含核心系统与子系统总闸）
-
-    如果 插件执行启用流程
-    则 释放默认配置文件并初始化数据管理器加载本地存储
-    并 注册指令处理器（rp）及其参数补全器
-    并 挂载 RPlaceListener 监听器处理交互事件
-    并 启动经济子系统总闸执行其内部初始化流程
-
-    最后 向控制台输出系统就绪的彩色信息。
-    */
     @Override
     public void onEnable() {
-        // 1. 基础逻辑加载
+        instance = this;
         saveDefaultConfig();
         this.dataManager = new DataManager(this);
         dataManager.loadConfigData();

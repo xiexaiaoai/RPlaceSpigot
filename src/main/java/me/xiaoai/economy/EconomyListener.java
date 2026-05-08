@@ -14,32 +14,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
-import java.io.File;
-import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
+
 /**
- * 经济系统监听器中心
- * 负责处理所有与经济相关的玩家交互，包括：
- * 1. 手持“维度钟”触发的商店开启逻辑。
- * 2. GUI 界面内的点击、导航、翻页。
- * 3. 核心买卖交易逻辑（包含限购检测、余额变动与物品分发）。
+ * 经济系统监听器：处理商店交互、导航、核心交易及进化系统逻辑
  */
 public class EconomyListener implements Listener {
 
-    private final HashMap<UUID, Integer> pageMap = new HashMap<>();
-    private final HashMap<UUID, Integer> rowMap = new HashMap<>();
+    private final HashMap<UUID, Integer> pageMap = new HashMap<>();   // 追踪玩家当前所在页码
+    private final HashMap<UUID, Integer> rowMap = new HashMap<>();    // 追踪玩家当前商店维度/类型 ID
     private final HashMap<UUID, Integer> resetClickMap = new HashMap<>();
     private final HashMap<UUID, Long> resetLastTimeMap = new HashMap<>();
 
     /**
-     * 维度钟交互处理器
-     * 监听右键点击动作，通过解析物品 Lore 中的 STORE_ID 标识符来判断开启哪个维度的商店。
-     * 内置了颜色代码剥离逻辑，确保 ID 提取的跨版本稳定性。
+     * 维度钟交互：右键识别 Lore 中的 STORE_ID 并初始化对应的商店 GUI
      */
     @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
     public void onPlayerInteract(org.bukkit.event.player.PlayerInteractEvent event) {
@@ -53,6 +40,7 @@ public class EconomyListener implements Listener {
             if (line.contains("STORE_ID:")) {
                 event.setCancelled(true);
                 try {
+                    // 剥离颜色代码提取纯文本 ID，确保跨版本解析稳定
                     String plainLine = org.bukkit.ChatColor.stripColor(line);
                     String idStr = plainLine.split("STORE_ID:")[1].trim();
                     int shopId = Integer.parseInt(idStr);
@@ -65,68 +53,65 @@ public class EconomyListener implements Listener {
                     player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_XYLOPHONE, 1.0f, 1.2f);
                     return;
                 } catch (Exception e) {
-                    // 容错处理：若当前行解析失败，继续匹配下一行
+                    // 容错：当前行格式不符则尝试下一行 Lore
                 }
             }
         }
     }
 
     /**
-     * GUI 点击事件总调度
-     * 拦截所有标题带 §0 的界面点击。流程分为三步：
-     * 1. 状态预检（获取当前页码、维度及手持锁定状态）。
-     * 2. 导航控制（处理侧边栏切换与翻页）。
-     * 3. 交易处理（计算价格、检查限购并更新 YML 数据）。
+     * GUI 点击调度：拦截带 §0 标识的自定义界面，分发至导航、进化或交易逻辑
      */
     @EventHandler
     public void onGuiClick(org.bukkit.event.inventory.InventoryClickEvent event) {
         String title = event.getView().getTitle();
         if (title.equals("§0请放入要佩戴的物品")) return;
         if (!title.contains("§0")) return;
-        event.setCancelled(true);
+        event.setCancelled(true); // 锁定界面，防止物品被玩家取走
 
         int slot = event.getRawSlot();
         if (slot < 0 || slot >= 54) return;
 
-        org.bukkit.entity.Player player = (org.bukkit.entity.Player) event.getWhoClicked();
-        java.util.UUID uuid = player.getUniqueId();
-        me.xiaoai.economy.gui.EconomyMainMenu menu = new me.xiaoai.economy.gui.EconomyMainMenu();
+        Player player = (Player) event.getWhoClicked();
+        UUID uuid = player.getUniqueId();
+        EconomyMainMenu menu = new EconomyMainMenu();
         int curRow = rowMap.getOrDefault(uuid, 0);
 
-        // 导航栏处理
+        // 导航栏功能区块 (Slot 17, 26, 35, 44)
         if (slot == 17 || slot == 26 || slot == 35 || slot == 44) {
-            if (slot == 44) {
+            if (slot == 44) { // 特殊跳转：进化中心 (Row 99)
                 rowMap.put(uuid, 99);
                 pageMap.put(uuid, 0);
                 menu.open(player, 0, 99);
-                player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1.2f);
+                player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1.2f);
             } else {
                 handleNavigationClick(event, player, uuid, slot, curRow, getHeldDimensionId(player), menu);
             }
             return;
         }
 
-        // 进化中心逻辑 (Row 99)
+        // 逻辑分流
         if (curRow == 99) {
             handleEvolutionUpgradeLogic(player, slot, uuid, menu);
-            return;
-        }
-
-        // 其他逻辑 (Row 1 或 商店交易)
-        if (curRow == 1) {
+        } else if (curRow == 1) {
+            // 账户中心点击处理
             if (slot == 10 || slot == 13 || slot == 16 || slot == 30 || slot == 32) {
-                me.xiaoai.economy.AccountCenter.handleClick(player, slot);
+                AccountCenter.handleClick(player, slot);
             }
         } else if (slot % 9 < 7 && event.getCurrentItem() != null) {
+            // 核心交易区 (排除侧边栏)
             processTrade(player, uuid, slot, pageMap.getOrDefault(uuid, 0), curRow, event.getClick(), menu);
         }
     }
 
+    /**
+     * 进化系统逻辑：处理 stamina_level(体力) 与 recovery_level(恢复) 的扣费升级及数据持久化
+     */
     private void handleEvolutionUpgradeLogic(org.bukkit.entity.Player player, int slot, java.util.UUID uuid, me.xiaoai.economy.gui.EconomyMainMenu menu) {
         me.xiaoai.economy.EconomyCore core = me.xiaoai.economy.EconomyCore.getInstance();
         org.bukkit.configuration.file.FileConfiguration evoConfig = core.getEvolutionConfig();
 
-        // 1. 重置逻辑 (49号位)
+        // 49号位：带有连点确认机制的重置逻辑
         if (slot == 49) {
             int count = pageMap.getOrDefault(uuid, 0) + 1;
             long resetCost = evoConfig.getLong("reset_settings.cost", 5000);
@@ -139,10 +124,16 @@ public class EconomyListener implements Listener {
             } else {
                 pageMap.put(uuid, 0);
                 if (core.withdrawPlayer(uuid, (double)resetCost)) {
-                    // 回归初始等级 1
                     evoConfig.set("player_data." + uuid + ".stamina_level", 1);
                     evoConfig.set("player_data." + uuid + ".recovery_level", 1);
                     core.saveEvolutionConfig();
+
+                    // 【API联动】重置为初始实权数值
+                    me.xiaoai.rplace.RPlace rp = me.xiaoai.rplace.RPlace.getInstance();
+                    rp.maxPointsMap.put(uuid, 1);
+                    rp.recoverSpeedMap.put(uuid, 60);
+                    saveToRPlaceData(rp, uuid, 1, 60);
+
                     player.sendMessage("§a§l重置 >> §f所有属性已归零。");
                     player.playSound(player.getLocation(), org.bukkit.Sound.UI_STONECUTTER_TAKE_RESULT, 1.0f, 1.0f);
                     menu.open(player, 0, 99);
@@ -153,15 +144,13 @@ public class EconomyListener implements Listener {
             return;
         }
 
-        // 2. 独立升级逻辑 (29 体力, 33 恢复)
+        // 29(体力)/33(恢复)：执行扣费并调用 API 赋予实权
         if (slot == 29 || slot == 33) {
-            pageMap.put(uuid, 0); // 点击升级则重置“重置按钮”的计数
+            pageMap.put(uuid, 0);
 
-            // 判定升级类型与对应路径
             String typeKey = (slot == 29) ? "stamina_level" : "recovery_level";
             String configSection = (slot == 29) ? "max_points" : "recover_speed";
 
-            // 从 evolution_settings.yml 读取当前玩家的独立等级
             int currentLv = evoConfig.getInt("player_data." + uuid + "." + typeKey, 1);
             int nextLv = currentLv + 1;
             long cost = evoConfig.getLong(configSection + ".costs." + nextLv, -1);
@@ -171,65 +160,76 @@ public class EconomyListener implements Listener {
                 return;
             }
 
-            // 执行扣费与存档
             if (core.withdrawPlayer(uuid, (double)cost)) {
-                evoConfig.set("player_data." + uuid + ".name", player.getName()); // 记录玩家名
+                evoConfig.set("player_data." + uuid + ".name", player.getName());
                 evoConfig.set("player_data." + uuid + "." + typeKey, nextLv);
-                core.saveEvolutionConfig(); // 保存到 evolution_settings.yml
+                core.saveEvolutionConfig();
 
-                player.sendMessage("§a§l进化 >> §f升级成功！当前等级: §eLv." + nextLv);
+                // 【API 联动核心：计算实权数值并应用】
+                me.xiaoai.rplace.RPlace rp = me.xiaoai.rplace.RPlace.getInstance();
+                int newValue = calculateEvolutionValue(configSection, nextLv, evoConfig);
+
+                if (slot == 29) {
+                    rp.maxPointsMap.put(uuid, newValue); // 赋予体力上限实权
+                    rp.getDataManager().getData().set("players.data." + uuid + ".max", newValue);
+                } else {
+                    rp.recoverSpeedMap.put(uuid, newValue); // 赋予恢复速度实权
+                    rp.getDataManager().getData().set("players.data." + uuid + ".speed", newValue);
+                }
+
+                // 强制保存 RPlace 的数据文件
+                try {
+                    rp.getDataManager().getData().save(new java.io.File(rp.getDataFolder(), "data.yml"));
+                } catch (java.io.IOException e) { e.printStackTrace(); }
+
+                player.sendMessage("§a§l进化 >> §f升级成功！当前等级: §eLv." + nextLv + " §f(实权数值: §b" + newValue + "§f)");
                 player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
-                menu.open(player, 0, 99); // 刷新界面
+                menu.open(player, 0, 99);
             } else {
                 player.sendMessage("§c§l进化 >> §7金币不足，还差: §e" + (cost - core.getBalance(uuid)) + " G");
             }
         }
     }
 
+    /**
+     * 实权数值计算：体力累加，速度递减
+     */
+    private int calculateEvolutionValue(String type, int level, org.bukkit.configuration.file.FileConfiguration config) {
+        int base = config.getInt(type + ".base_value", 1);
+        if (type.equals("max_points")) {
+            int total = base;
+            org.bukkit.configuration.ConfigurationSection bonuses = config.getConfigurationSection(type + ".bonuses");
+            if (bonuses != null) {
+                for (int i = 2; i <= level; i++) {
+                    total += bonuses.getInt(String.valueOf(i), 0);
+                }
+            }
+            return total;
+        } else {
+            // 恢复速度逻辑：基础时间 - (等级-1) * 缩减值
+            int reduction = config.getInt(type + ".reduction_per_level", 4);
+            return Math.max(1, base - ((level - 1) * reduction));
+        }
+    }
 
     /**
-     * [总结] 发送余额不足的提示给玩家。
-     * [具体流程]
-     * 1. 接收玩家对象和升级所需的花费金额。
-     * 2. 向玩家发送一段带有颜色格式的字符串，显示所需花费的金币数量。
-     * 3. 播放村民摇头拒绝的音效提示玩家购买失败。
+     * 辅助方法：快速同步数据到 RPlace 文件
      */
-    private void sendBalanceLowMessage(Player p, long cost) {
+    private void saveToRPlaceData(me.xiaoai.rplace.RPlace rp, java.util.UUID uuid, int max, int speed) {
+        rp.getDataManager().getData().set("players.data." + uuid + ".max", max);
+        rp.getDataManager().getData().set("players.data." + uuid + ".speed", speed);
+        try {
+            rp.getDataManager().getData().save(new java.io.File(rp.getDataFolder(), "data.yml"));
+        } catch (java.io.IOException e) { e.printStackTrace(); }
+    }
+
+    private void sendBalanceLowMessage(org.bukkit.entity.Player p, long cost) {
         p.sendMessage("§c§l进化 >> §7升级所需资金不足！(需要 §e" + String.format("%,d", cost) + " §7金币)");
         p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1, 1);
     }
 
     /**
-     * [总结] 获取指定等级的体力上限升级所需金额。
-     * [具体流程]
-     * 1. 定义一个包含了各等级升级费用的静态数组。
-     * 2. 检查传入的目标等级（nextLv）是否在合法区间内（0-10）。
-     * 3. 如果合法，则将其作为索引返回数组中的指定金额，否则返回 0 容错处理。
-     */
-    private long getMaxUpgradeCost(int nextLv) {
-        long[] costs = {0, 0, 5000, 15000, 40000, 90000, 180000, 350000, 600000, 900000, 1200000};
-        return (nextLv >= 0 && nextLv <= 10) ? costs[nextLv] : 0;
-    }
-
-    /**
-     * [总结] 获取指定等级的恢复速率升级所需金额。
-     * [具体流程]
-     * 1. 定义一个包含了各等级升级费用的静态数组（价格不同于体力升级）。
-     * 2. 检查传入的目标等级（nextLv）是否在 0-10 区间内。
-     * 3. 合法即提取并返回该对应索引位上的价格数字，否则安全返回 0。
-     */
-    private long getSpeedUpgradeCost(int nextLv) {
-        long[] costs = {0, 0, 8000, 25000, 60000, 150000, 300000, 550000, 900000, 1300000, 1800000};
-        return (nextLv >= 0 && nextLv <= 10) ? costs[nextLv] : 0;
-    }
-
-    /**
-     * [总结] 解析玩家手持物品，尝试提取绑定的维度ID。
-     * [具体流程]
-     * 1. 获取玩家主手持有的物品，检查其是否为时钟（Material.CLOCK）并且是否包含物品元数据(ItemMeta)。
-     * 2. 如果满足，提取出该物品的所有 Lore(说明文本)。
-     * 3. 逐行遍历并去除文本的颜色代码，搜索是否包含 "STORE_ID:" 关键字。
-     * 4. 如果找到对应行，将冒号后面的字符串截取并转换为整型数字返回，解析失败或者没有绑定则返回 -1。
+     * 维度识别：解析主手 CLOCK 的 Lore，通过 "STORE_ID:" 提取绑定的维度 ID (-1 为无效)
      */
     private int getHeldDimensionId(Player player) {
         ItemStack handItem = player.getInventory().getItemInMainHand();
@@ -241,8 +241,7 @@ public class EconomyListener implements Listener {
                     if (plainLore.contains("STORE_ID:")) {
                         try {
                             return Integer.parseInt(plainLore.split(":")[1].trim());
-                        } catch (Exception ignored) {
-                        }
+                        } catch (Exception ignored) {}
                     }
                 }
             }
@@ -251,15 +250,7 @@ public class EconomyListener implements Listener {
     }
 
     /**
-     * [总结] 处理 GUI 界面右侧功能导航栏的点击逻辑。
-     * [具体流程]
-     * 1. 获取被点击导航图标的 Lore 中的 "STORE_ID" (图标代表的维度ID) 和 "ANCHOR_DIM" (主界面的锚点维度ID)。
-     * 2. 判断点击的具体槽位以决定跳转的下个页面行号（nextRow）：
-     * - 17号位(主页): 如果手持特定维度钟回特定维度，如果在查询页则回锚点，否则去图标维度。
-     * - 26号位(眼睛): 固定跳转至 ID 为 1 的界面（通常为个人余额与流水界面）。
-     * - 35号位(随机): 如果手持维度钟则跳转到该维度的专属随机池(维度ID+10000)，否则跳转到图标所在的随机池。
-     * 3. 将目标页码(pageMap)置为 0，并将计算出的 nextRow 更新至玩家数据中。
-     * 4. 调用 menu.open 打开指定的目标页面渲染给玩家。
+     * 侧边栏导航：处理 Slot 17(主页/维度)、26(账户)、35(随机池) 的跳转与锚点(ANCHOR_DIM)逻辑
      */
     private void handleNavigationClick(org.bukkit.event.inventory.InventoryClickEvent event, Player player, UUID uuid, int slot, int curRow, int heldDimId, EconomyMainMenu menu) {
         int nextRow = 0;
@@ -267,6 +258,7 @@ public class EconomyListener implements Listener {
         int iconDimId = 0;
         int anchorDimId = 0;
 
+        // 提取图标携带的目标 ID 与返回锚点
         if (clicked != null && clicked.hasItemMeta() && clicked.getItemMeta().getLore() != null) {
             for (String line : clicked.getItemMeta().getLore()) {
                 String plain = org.bukkit.ChatColor.stripColor(line);
@@ -276,13 +268,13 @@ public class EconomyListener implements Listener {
         }
 
         if (slot == 17) {
-            if (heldDimId != -1) nextRow = heldDimId;
-            else if (curRow == 1) nextRow = anchorDimId;
+            if (heldDimId != -1) nextRow = heldDimId;       // 优先跳转手持钟维度
+            else if (curRow == 1) nextRow = anchorDimId;    // 从账户页返回时使用锚点
             else nextRow = iconDimId;
         } else if (slot == 26) {
-            nextRow = 1;
+            nextRow = 1; // 账户中心
         } else if (slot == 35) {
-            nextRow = (heldDimId != -1) ? (heldDimId + 10000) : iconDimId;
+            nextRow = (heldDimId != -1) ? (heldDimId + 10000) : iconDimId; // 随机池标识：维度ID + 10000
         }
 
         pageMap.put(uuid, 0);
@@ -291,12 +283,7 @@ public class EconomyListener implements Listener {
     }
 
     /**
-     * [总结] 处理商店内物品列表的翻页交互。
-     * [具体流程]
-     * 1. 过滤判断当前页面是否允许翻页。0(全球市场)和大于2且小于10000的普通维度商店可以翻页。
-     * 2. 检测玩家是按左键还是右键来控制页码加减（左键上一页，使用 Math.max 确保最低页为 0，右键下一页）。
-     * 3. 将计算出的新页码覆盖保存到玩家的 pageMap 记录中。
-     * 4. 基于相同的行号(curRow)与新的页码(nextPage)重新打开 GUI。
+     * 商店翻页：左键向前，右键向后，仅限 Row 0 或 维度商店生效
      */
     private void handlePagination(org.bukkit.event.inventory.InventoryClickEvent event, Player player, UUID uuid, int curPage, int curRow, EconomyMainMenu menu) {
         if (curRow == 0 || (curRow > 2 && curRow < 10000)) {
@@ -307,24 +294,15 @@ public class EconomyListener implements Listener {
     }
 
     /**
-     * [总结] 玩家点击物品后触发的实际购买或出售的核心交易机制。
-     * [具体流程]
-     * 1. 路径判定：根据 curRow 推导出要读取 Config 中的哪个物品列表路径（市场/随机池/维度商店）。
-     * 2. 定位物品：调用 getItemKeyBySlot 将点击槽位转化为 Config 的键名，读取目标物品段落并获取价格、库存限制及物品堆数据。
-     * 3. 数量判定：判断是否处于随机商店内（仅限买1个）以及玩家的点击方式（右键可批量买64个，其他默认为1个）。
-     * 4. 限购拦截：读取该玩家的购买历史记录，如配置了最高限购量且超限则阻断交易。
-     * 5. 执行交易：
-     * - [如果是负价(系统回收)]: 检查玩家背包是否有足够该物品。有的话扣除对应物品并给玩家增加金币。
-     * - [如果是正价(系统出售)]: 检查玩家余额是否充足。足够的话扣除金币，并把物品存入玩家背包。
-     * 6. 数据写入：交易发生后，把玩家累积限购量写回 Config 并执行保存。
-     * 7. 刷新反馈：播放成功音效，重新刷新并打开当前 GUI 页面以展现最新的余额和库存状态。
+     * 交易核心：处理买入(正价)/卖出(负价)、个人限购检测及 Config 数据同步
      */
     private void processTrade(Player player, UUID uuid, int slot, int curPage, int curRow, org.bukkit.event.inventory.ClickType click, EconomyMainMenu menu) {
         EconomyCore core = EconomyCore.getInstance();
         String path;
+
+        // 映射配置路径：市场(0)、随机(2)、维度随机(>=10000)、维度商店(>2)
         if (curRow == 0) path = "market.items";
         else if (curRow == 2) path = "random_shop.pool";
-
         else if (curRow >= 10000) path = "market_dimension_" + (curRow - 10000) + ".random_pool";
         else if (curRow > 2) path = "market_dimension_" + curRow + ".items";
         else return;
@@ -340,11 +318,13 @@ public class EconomyListener implements Listener {
         ItemStack shopItem = section.getItemStack("item");
         if (shopItem == null) return;
 
+        // 随机商店强制单买，普通商店支持右键 64 堆叠买卖
         boolean isRandom = (curRow == 2 || curRow >= 10000);
         int amount = isRandom ? 1 : ((click == org.bukkit.event.inventory.ClickType.RIGHT) ? 64 : 1);
         String dataPath = "player_data." + uuid;
         int alreadyBought = core.getConfig().getInt(dataPath + ".history." + itemKey, 0);
 
+        // 个人限购拦截
         if (maxLimit != -1 && (alreadyBought + amount) > maxLimit) {
             player.sendMessage("§c§l[!] §c购买失败：已达到个人限额。");
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
@@ -352,33 +332,26 @@ public class EconomyListener implements Listener {
         }
 
         boolean transactionOccurred = false;
-        if (unitPrice < 0) {
+        if (unitPrice < 0) { // 出售给系统 (价格为负)
             double income = Math.abs(unitPrice) * amount;
             if (player.getInventory().containsAtLeast(shopItem, amount)) {
-                ItemStack toRemove = shopItem.clone();
-                toRemove.setAmount(amount);
+                ItemStack toRemove = shopItem.clone(); toRemove.setAmount(amount);
                 player.getInventory().removeItem(toRemove);
                 core.addBalance(uuid, income);
                 transactionOccurred = true;
                 player.sendMessage("§a§l[✔] §f出售成功！收益: §e" + income);
-            } else {
-                player.sendMessage("§c§l[!] §c物品不足！");
-            }
-        } else {
+            } else player.sendMessage("§c§l[!] §c物品不足！");
+        } else { // 从系统购买 (价格为正)
             double total = unitPrice * amount;
-            if (core.getBalance(uuid) >= total) {
-                if (core.takeBalance(uuid, total)) {
-                    ItemStack toGive = shopItem.clone();
-                    toGive.setAmount(amount);
-                    player.getInventory().addItem(toGive);
-                    transactionOccurred = true;
-                    player.sendMessage("§a§l[✔] §a购买成功！支出: §e" + total);
-                }
-            } else {
-                player.sendMessage("§c§l[!] §c余额不足！还差: §e" + (total - core.getBalance(uuid)));
-            }
+            if (core.getBalance(uuid) >= total && core.takeBalance(uuid, total)) {
+                ItemStack toGive = shopItem.clone(); toGive.setAmount(amount);
+                player.getInventory().addItem(toGive);
+                transactionOccurred = true;
+                player.sendMessage("§a§l[✔] §a购买成功！支出: §e" + total);
+            } else player.sendMessage("§c§l[!] §c余额不足！还差: §e" + (total - core.getBalance(uuid)));
         }
 
+        // 成功后持久化数据并刷新界面
         if (transactionOccurred) {
             core.getConfig().set(dataPath + ".name", player.getName());
             core.getConfig().set(dataPath + ".history." + itemKey, alreadyBought + amount);
@@ -389,14 +362,7 @@ public class EconomyListener implements Listener {
     }
 
     /**
-     * [总结] 检查随机商店倒计时并在到达时间时执行全体刷新。
-     * [具体流程]
-     * 1. 获取系统配置中的 "last_refresh" 上次刷新时间的时间戳。
-     * 2. 调用 parseIntervalToMillis 把配置里的倒计时字符串(如"1h")转换为毫秒数。
-     * 3. 比较 当前时间 减去 上次刷新时间，如果大于等于设定的间隔毫秒数，说明需要刷新了。
-     * 4. 调用 refreshRandomShopPool 抽取重构新的随机商品池。
-     * 5. 将配置文件中的 "player_data" 节点直接清空，以此来清除所有玩家针对此商店买入数量的限购限制。
-     * 6. 更新 "last_refresh" 为当前时间，保存配置并向全服广播商店翻新公告。
+     * 自动翻新：比较上次刷新时间与间隔(如 1h)，重置随机池并清除全服限购记录(player_data)
      */
     private void checkAndRefreshShop() {
         EconomyCore core = EconomyCore.getInstance();
@@ -407,7 +373,7 @@ public class EconomyListener implements Listener {
 
         if (currentTime - lastRefresh >= intervalMillis) {
             refreshRandomShopPool(core);
-            core.getConfig().set("player_data", null);
+            core.getConfig().set("player_data", null); // 翻新即清空限购流水
             core.getConfig().set("shop_settings.last_refresh", currentTime);
             core.saveCustomConfig();
             org.bukkit.Bukkit.broadcastMessage("§a§l[经济系统] §f商店货架已翻新！");
@@ -415,52 +381,36 @@ public class EconomyListener implements Listener {
     }
 
     /**
-     * [总结] 将人类可读的短时间字符串转化为计算机用毫秒时间戳。
-     * [具体流程]
-     * 1. 分别提取输入字符串（例如"1d", "3h", "30m"）的最后一位字符作为单位(s/m/h/d)以及前面的纯数字部分。
-     * 2. 根据获取的单位使用 switch case 把对应的时间数字乘上秒/分/时/天的进位乘数再乘 1000 转为毫秒。
-     * 3. 任何解析失败异常都会通过 catch 捕获，并默认返回 1 小时 (3600000L) 作为容错降级方案。
+     * 时间解析：支持 s/m/h/d 单位，解析失败默认返回 3600000ms (1h)
      */
     private long parseIntervalToMillis(String interval) {
         try {
             String unit = interval.substring(interval.length() - 1).toLowerCase();
             long value = Long.parseLong(interval.substring(0, interval.length() - 1));
             switch (unit) {
-                case "s":
-                    return value * 1000L;
-                case "m":
-                    return value * 60 * 1000L;
-                case "h":
-                    return value * 3600 * 1000L;
-                case "d":
-                    return value * 24 * 3600 * 1000L;
-                default:
-                    return 3600000L;
+                case "s": return value * 1000L;
+                case "m": return value * 60 * 1000L;
+                case "h": return value * 3600 * 1000L;
+                case "d": return value * 24 * 3600 * 1000L;
+                default: return 3600000L;
             }
-        } catch (Exception e) {
-            return 3600000L;
-        }
+        } catch (Exception e) { return 3600000L; }
     }
 
     /**
-     * [总结] 从完整的大随机池资源中打乱顺序抽取一部分商品放入上架的随机池。
-     * [具体流程]
-     * 1. 尝试读取配置文件里负责存放所有随机库底层数据的 "random_pool_source" 节点。如果为空则终止。
-     * 2. 获取下面所有的键值对 Key，并放入一个 ArrayList 里。
-     * 3. 使用 Collections.shuffle 将整个 ArrayList 的物品顺序完全打乱。
-     * 4. 从配置中获取每次应当刷新上架的物品下限 (min) 和 上限 (max)，随机在这个区间内 roll 一个总数量 (amountToPick)。
-     * 5. 清除原有的展示商品节点 "random_shop.pool"。
-     * 6. 使用 for 循环将刚才打乱列表中的前 N 个物品重新写入进展示节点中完成刷新动作。
+     * 池刷新逻辑：从 random_pool_source 节点乱序抽取 N 个(3-7)商品写入 random_shop.pool
      */
     private void refreshRandomShopPool(EconomyCore core) {
         ConfigurationSection source = core.getConfig().getConfigurationSection("random_pool_source");
         if (source == null) return;
         List<String> allKeys = new ArrayList<>(source.getKeys(false));
         if (allKeys.isEmpty()) return;
-        java.util.Collections.shuffle(allKeys);
+
+        java.util.Collections.shuffle(allKeys); // 乱序算法实现随机上架
         int min = core.getConfig().getInt("random_shop.min_items", 3);
         int max = core.getConfig().getInt("random_shop.max_items", 7);
         int amountToPick = (int) (Math.random() * (max - min + 1)) + min;
+
         core.getConfig().set("random_shop.pool", null);
         for (int i = 0; i < amountToPick && i < allKeys.size(); i++) {
             String key = allKeys.get(i);
@@ -469,59 +419,51 @@ public class EconomyListener implements Listener {
     }
 
     /**
-     * [总结] 界面槽位到配置文件键名的转换器(消除侧边栏空白偏移)。
-     * [具体流程]
-     * 1. 根据传入的路径从配置中提取该节点下的全部物品名称列表（顺序存入 List 集合）。
-     * 2. 将玩家点击的从 0 开始的一维 54 格 slot 计算转换为其在矩阵中的 row(行) 与 col(列)。
-     * 3. 因为 GUI 的最右两列被固定导航栏和边框占据，展示区实际宽为 7，将行列转换为展示区的 0~41 内部索引 (clickedIndex)。
-     * 4. 检查是否为支持翻页的市场界面，如果是，则用页码乘以单页的 42 格算出跨页距，相加得出在 List 集合中的最终绝对索引(finalIndex)。
-     * 5. 若此索引处于合法区间，则从 List 里提取出对应配置键名字符串返回，否则返回 null 供外部丢弃操作。
+     * 坐标转换：将 Slot (0-53) 映射至配置索引，自动计算页边距偏移并过滤侧边导航栏
      */
     private String getItemKeyBySlot(String path, int page, int slot) {
         ConfigurationSection section = EconomyCore.getInstance().getConfig().getConfigurationSection(path);
         if (section == null) return null;
         List<String> keys = new ArrayList<>(section.getKeys(false));
+
         int row = slot / 9, col = slot % 9;
-        int clickedIndex = (row * 7) + col;
+        int clickedIndex = (row * 7) + col; // 映射 7 列显示区
         int finalIndex = (path.contains("market")) ? (page * 42) + clickedIndex : clickedIndex;
-        if (finalIndex >= 0 && finalIndex < keys.size()) return keys.get(finalIndex);
-        return null;
+
+        return (finalIndex >= 0 && finalIndex < keys.size()) ? keys.get(finalIndex) : null;
     }
-// ================= [ 新增：处理戴在头上的箱子逻辑 ] =================
 
-    // ================= [ 处理戴在头上的箱子逻辑 ] =================
-
+    /**
+     * 穿戴处理：在 GUI 关闭时将 Slot 4 物品设置到玩家头盔栏，并归还原有头盔
+     */
     @EventHandler
     public void onHeadGearClose(org.bukkit.event.inventory.InventoryCloseEvent event) {
-        String title = event.getView().getTitle();
-        org.bukkit.entity.Player player = (org.bukkit.entity.Player) event.getPlayer();
+        if (!event.getView().getTitle().equals("§0请放入要佩戴的物品")) return;
 
-        if (!title.equals("§0请放入要佩戴的物品")) return;
+        Player player = (Player) event.getPlayer();
+        ItemStack itemToWear = event.getInventory().getItem(4);
 
-        org.bukkit.inventory.Inventory inv = event.getInventory();
-        ItemStack itemToWear = inv.getItem(4);
-
-        if (itemToWear == null || itemToWear.getType() == org.bukkit.Material.AIR) return;
+        if (itemToWear == null || itemToWear.getType() == Material.AIR) return;
 
         try {
             ItemStack oldHelmet = player.getInventory().getHelmet();
             player.getInventory().setHelmet(itemToWear.clone());
-            inv.setItem(4, null);
+            event.getInventory().setItem(4, null); // 彻底移除 GUI 物品防止并发导致掉落/刷物
 
-            if (oldHelmet != null && oldHelmet.getType() != org.bukkit.Material.AIR) {
+            if (oldHelmet != null && oldHelmet.getType() != Material.AIR) {
                 player.getInventory().addItem(oldHelmet);
             }
             player.sendMessage("§a§lRPlace >> §f穿戴成功！");
         } catch (Exception e) {}
     }
 
+    /**
+     * 穿戴点击拦截：禁止在穿戴界面点击除 Slot 4 (投放区) 以外的 GUI 槽位
+     */
     @EventHandler
     public void onHeadGearClick(org.bukkit.event.inventory.InventoryClickEvent event) {
         if (!event.getView().getTitle().equals("§0请放入要佩戴的物品")) return;
-
         int slot = event.getRawSlot();
-        if (slot >= 0 && slot < 9 && slot != 4) {
-            event.setCancelled(true);
-        }
+        if (slot >= 0 && slot < 9 && slot != 4) event.setCancelled(true);
     }
 }
