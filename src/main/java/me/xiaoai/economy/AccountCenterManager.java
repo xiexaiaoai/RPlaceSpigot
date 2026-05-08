@@ -48,12 +48,6 @@ public class AccountCenterManager {
             player.openWorkbench(null, true);
         });
 
-        // 示例：自定逻辑 - 比如领取每日工资
-        registerItem(14, createIcon(Material.GOLD_NUGGET, "§e每日津贴", "§7点击领取 100G"), player -> {
-            EconomyCore.getInstance().addBalance(player.getUniqueId(), 100.0);
-            player.sendMessage("§a[账户] 你领取了 100G 每日津贴！");
-            player.closeInventory();
-        });
 
         // 你可以在这里无限添加 registerItem...
     }

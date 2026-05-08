@@ -26,6 +26,7 @@ public class EconomyCore {
     private File configFile;
     private FileConfiguration dataConfig;
 
+
     private File evolutionFile;
     private FileConfiguration evolutionConfig;
 
@@ -57,32 +58,32 @@ public class EconomyCore {
      * 配置文件加载逻辑
      * 包含详细的后台输出，用于排查 YAML 格式错误
      */
+    /**
+     * 加载/重载配置文件 (支持 UTF-8 编码读取)
+     */
     public void reloadCustomConfig() {
         try {
-            // 1. 加载主配置文件 (使用 UTF-8)
+            // 1. 加载主经济配置文件
             if (configFile.exists()) {
                 InputStreamReader reader = new InputStreamReader(new FileInputStream(configFile), StandardCharsets.UTF_8);
                 dataConfig = YamlConfiguration.loadConfiguration(reader);
 
-                // 调试输出：检查核心节点
                 ConfigurationSection shopSection = dataConfig.getConfigurationSection("shop_items");
                 if (shopSection == null) {
-                    Bukkit.getLogger().severe("[Economy] !!! 配置错误：在 economy_settings.yml 中找不到 'shop_items' 节点，请检查缩进 !!!");
+                    Bukkit.getLogger().severe("[Economy] !!! 配置错误：在 economy_settings.yml 中找不到 'shop_items' 节点 !!!");
                 } else {
-                    int size = shopSection.getKeys(false).size();
-                    Bukkit.getLogger().info("[Economy] 成功加载 economy_settings.yml，识别到商品数量: " + size);
+                    Bukkit.getLogger().info("[Economy] 成功加载 economy_settings.yml，识别到商品数量: " + shopSection.getKeys(false).size());
                 }
             }
 
-            // 2. 加载进化配置文件
+            // 2. 加载进化系统配置文件
             if (evolutionFile.exists()) {
                 InputStreamReader evoReader = new InputStreamReader(new FileInputStream(evolutionFile), StandardCharsets.UTF_8);
                 evolutionConfig = YamlConfiguration.loadConfiguration(evoReader);
                 Bukkit.getLogger().info("[Economy] 成功加载 evolution_settings.yml");
             }
-
         } catch (Exception e) {
-            Bukkit.getLogger().severe("[Economy] 加载配置文件时发生严重异常:");
+            Bukkit.getLogger().severe("[Economy] 加载配置文件时发生异常:");
             e.printStackTrace();
         }
     }
@@ -92,9 +93,28 @@ public class EconomyCore {
         return dataConfig;
     }
 
+    // --- 进化系统核心接口 ---
+
     public FileConfiguration getEvolutionConfig() {
         if (evolutionConfig == null) reloadCustomConfig();
         return evolutionConfig;
+    }
+
+    public void saveEvolutionConfig() {
+        try {
+            evolutionConfig.save(evolutionFile);
+        } catch (java.io.IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public boolean withdrawPlayer(UUID uuid, double amount) {
+        double current = getBalance(uuid);
+        if (current >= amount) {
+            setBalance(uuid, current - amount);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -132,6 +152,14 @@ public class EconomyCore {
         getConfig().set(path + ".name", name != null ? name : "Unknown");
         getConfig().set(path + ".balance", Math.max(0, amount));
         saveCustomConfig();
+    }
+    public void updatePlayerStat(UUID uuid, String statPath, int newValue) {
+        getConfig().set("player_data." + uuid.toString() + ".stats." + statPath, newValue);
+        saveCustomConfig();
+    }
+
+    public int getPlayerStat(UUID uuid, String statPath, int defaultValue) {
+        return getConfig().getInt("player_data." + uuid.toString() + ".stats." + statPath, defaultValue);
     }
 
     public void addBalance(UUID uuid, double amount) {

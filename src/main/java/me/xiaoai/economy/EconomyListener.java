@@ -81,10 +81,8 @@ public class EconomyListener implements Listener {
     @EventHandler
     public void onGuiClick(org.bukkit.event.inventory.InventoryClickEvent event) {
         String title = event.getView().getTitle();
-
         if (title.equals("§0请放入要佩戴的物品")) return;
         if (!title.contains("§0")) return;
-
         event.setCancelled(true);
 
         int slot = event.getRawSlot();
@@ -93,20 +91,9 @@ public class EconomyListener implements Listener {
         org.bukkit.entity.Player player = (org.bukkit.entity.Player) event.getWhoClicked();
         java.util.UUID uuid = player.getUniqueId();
         me.xiaoai.economy.gui.EconomyMainMenu menu = new me.xiaoai.economy.gui.EconomyMainMenu();
-
-        int curPage = pageMap.getOrDefault(uuid, 0);
         int curRow = rowMap.getOrDefault(uuid, 0);
-        int heldDimId = getHeldDimensionId(player);
 
-        // org.bukkit.Bukkit.broadcastMessage("§e§l调试 >> §f当前行(Row): " + curRow + " | 点击槽位: " + slot);
-
-        if (curRow == 1) {
-            if (slot == 10 || slot == 13 || slot == 16 || slot == 30 || slot == 32) {
-                if (me.xiaoai.economy.AccountCenter.handleClick(player, slot)) return;
-            }
-            if (slot % 9 < 7) return;
-        }
-
+        // 导航栏处理
         if (slot == 17 || slot == 26 || slot == 35 || slot == 44) {
             if (slot == 44) {
                 rowMap.put(uuid, 99);
@@ -114,58 +101,88 @@ public class EconomyListener implements Listener {
                 menu.open(player, 0, 99);
                 player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1.2f);
             } else {
-                handleNavigationClick(event, player, uuid, slot, curRow, heldDimId, menu);
+                handleNavigationClick(event, player, uuid, slot, curRow, getHeldDimensionId(player), menu);
             }
             return;
         }
 
-        if (slot == 53) {
-            handlePagination(event, player, uuid, curPage, curRow, menu);
-            return;
-        }
-
+        // 进化中心逻辑 (Row 99)
         if (curRow == 99) {
-            if (slot == 49) {
-                player.sendMessage("§a§l进化 >> §f属性已重置！");
-                player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1.0f);
-                return;
-            }
-
-            if ((slot == 29 || slot == 33) && event.getCurrentItem() != null) {
-                handleEvolutionUpgrade(player, slot);
-                menu.open(player, 0, 99);
-            }
+            handleEvolutionUpgradeLogic(player, slot, uuid, menu);
             return;
         }
 
-        if (slot % 9 < 7 && event.getCurrentItem() != null && event.getCurrentItem().getType() != org.bukkit.Material.AIR) {
-            processTrade(player, uuid, slot, curPage, curRow, event.getClick(), menu);
+        // 其他逻辑 (Row 1 或 商店交易)
+        if (curRow == 1) {
+            if (slot == 10 || slot == 13 || slot == 16 || slot == 30 || slot == 32) {
+                me.xiaoai.economy.AccountCenter.handleClick(player, slot);
+            }
+        } else if (slot % 9 < 7 && event.getCurrentItem() != null) {
+            processTrade(player, uuid, slot, pageMap.getOrDefault(uuid, 0), curRow, event.getClick(), menu);
         }
     }
 
-    private void handleEvolutionUpgrade(Player player, int slot) {
+    private void handleEvolutionUpgradeLogic(org.bukkit.entity.Player player, int slot, java.util.UUID uuid, me.xiaoai.economy.gui.EconomyMainMenu menu) {
         me.xiaoai.economy.EconomyCore core = me.xiaoai.economy.EconomyCore.getInstance();
-        java.util.UUID uuid = player.getUniqueId();
+        org.bukkit.configuration.file.FileConfiguration evoConfig = core.getEvolutionConfig();
 
-        int currentLv = core.getConfig().getInt("player_data." + uuid + ".stats.level", 1);
-        int nextLv = currentLv + 1;
+        // 1. 重置逻辑 (49号位)
+        if (slot == 49) {
+            int count = pageMap.getOrDefault(uuid, 0) + 1;
+            long resetCost = evoConfig.getLong("reset_settings.cost", 5000);
+            int required = evoConfig.getInt("reset_settings.required_clicks", 10);
 
-        long cost = (slot == 29) ? getMaxUpgradeCost(nextLv) : getSpeedUpgradeCost(nextLv);
-
-        if (cost <= 0) {
-            player.sendMessage("§c§l进化 >> §7等级已达上限或配置错误。");
+            if (count < required) {
+                pageMap.put(uuid, count);
+                player.sendMessage("§c§l重置 >> §f确认要重置所有进化？需再点击 §e" + (required - count) + " §f次");
+                player.playSound(player.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_HAT, 1.0f, 0.5f + (count * 0.1f));
+            } else {
+                pageMap.put(uuid, 0);
+                if (core.withdrawPlayer(uuid, (double)resetCost)) {
+                    // 回归初始等级 1
+                    evoConfig.set("player_data." + uuid + ".stamina_level", 1);
+                    evoConfig.set("player_data." + uuid + ".recovery_level", 1);
+                    core.saveEvolutionConfig();
+                    player.sendMessage("§a§l重置 >> §f所有属性已归零。");
+                    player.playSound(player.getLocation(), org.bukkit.Sound.UI_STONECUTTER_TAKE_RESULT, 1.0f, 1.0f);
+                    menu.open(player, 0, 99);
+                } else {
+                    player.sendMessage("§c§l重置 >> §7金币不足 " + resetCost + " G");
+                }
+            }
             return;
         }
 
-        if (core.getBalance(uuid) >= cost) {
-            if (core.takeBalance(uuid, cost)) {
-                core.getConfig().set("player_data." + uuid + ".stats.level", nextLv);
-                core.saveCustomConfig();
-                player.sendMessage("§a§l进化 >> §f升级成功！当前等级: §e" + nextLv);
-                player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1, 1.2f);
+        // 2. 独立升级逻辑 (29 体力, 33 恢复)
+        if (slot == 29 || slot == 33) {
+            pageMap.put(uuid, 0); // 点击升级则重置“重置按钮”的计数
+
+            // 判定升级类型与对应路径
+            String typeKey = (slot == 29) ? "stamina_level" : "recovery_level";
+            String configSection = (slot == 29) ? "max_points" : "recover_speed";
+
+            // 从 evolution_settings.yml 读取当前玩家的独立等级
+            int currentLv = evoConfig.getInt("player_data." + uuid + "." + typeKey, 1);
+            int nextLv = currentLv + 1;
+            long cost = evoConfig.getLong(configSection + ".costs." + nextLv, -1);
+
+            if (cost <= 0) {
+                player.sendMessage("§e§l进化 >> §f该属性已达最高等级");
+                return;
             }
-        } else {
-            sendBalanceLowMessage(player, cost);
+
+            // 执行扣费与存档
+            if (core.withdrawPlayer(uuid, (double)cost)) {
+                evoConfig.set("player_data." + uuid + ".name", player.getName()); // 记录玩家名
+                evoConfig.set("player_data." + uuid + "." + typeKey, nextLv);
+                core.saveEvolutionConfig(); // 保存到 evolution_settings.yml
+
+                player.sendMessage("§a§l进化 >> §f升级成功！当前等级: §eLv." + nextLv);
+                player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+                menu.open(player, 0, 99); // 刷新界面
+            } else {
+                player.sendMessage("§c§l进化 >> §7金币不足，还差: §e" + (cost - core.getBalance(uuid)) + " G");
+            }
         }
     }
 

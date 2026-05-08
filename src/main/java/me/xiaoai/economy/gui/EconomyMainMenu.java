@@ -34,126 +34,94 @@ public class EconomyMainMenu {
      */
     public void open(Player player, int page, int row) {
         String title = "§0经济管理中心";
-
         if (row == 1) {
-
-
             title = "§0个人账户中心";
         } else if (row == 99) {
             title = "§0属性进化中心";
         } else if (row >= 10000) {
-
             title = "§0维度随机商店 - " + (row - 10000);
         } else if (row > 2) {
             title = "§0维度商店 - " + row;
-
         }
 
         Inventory gui = Bukkit.createInventory(null, 54, title);
         drawNavigation(gui, player, page, row);
 
+        me.xiaoai.economy.EconomyCore core = me.xiaoai.economy.EconomyCore.getInstance();
+
         if (row == 0) {
             renderMarket(gui, player, page);
         } else if (row == 1) {
-            // 【关键修改】直接删掉原来的 renderAccount(gui, player);
-            // 换成下面这一行，由 AccountCenter 类来负责画图标
             me.xiaoai.economy.AccountCenter.inject(gui, player);
-
         } else if (row == 99) {
-            // 1. 初始化插件实例与基础数据
-            me.xiaoai.rplace.RPlace rPlace = (me.xiaoai.rplace.RPlace) Bukkit.getPluginManager().getPlugin("RPlace");
             java.util.UUID uuid = player.getUniqueId();
-            double balance = me.xiaoai.economy.EconomyCore.getInstance().getBalance(uuid);
+            double balance = core.getBalance(uuid);
+            FileConfiguration evoConfig = core.getEvolutionConfig();
 
-            // 2. 配置文件读取 (增加安全校验)
-            File evalFile = new File(rPlace.getDataFolder(), "evolution_settings.yml");
-            if (!evalFile.exists()) {
-                // 如果文件不存在，尝试保存默认资源或打印警告
-                Bukkit.getLogger().severe("[Economy] 找不到配置文件: " + evalFile.getAbsolutePath());
-                player.sendMessage("§c§l错误 >> §7进化配置文件不存在，请联系管理员！");
+            // --- 核心修复：从 evolution_settings.yml 中读取玩家独立的等级数据 ---
+            // 注意：这里改为从 evoConfig 读取，保持与你思路中的 player_data 节点一致
+            int maxLv = evoConfig.getInt("player_data." + uuid + ".stamina_level", 1);
+            int speedLv = evoConfig.getInt("player_data." + uuid + ".recovery_level", 1);
+
+            // 读取配置基础值
+            int baseMax = evoConfig.getInt("max_points.base_value", 1);
+            int baseSpeed = evoConfig.getInt("recover_speed.base_value", 60);
+            int reduction = evoConfig.getInt("recover_speed.reduction_per_level", 4);
+
+            // 计算当前数值
+            int currentMaxPoints = baseMax;
+            for (int i = 2; i <= maxLv; i++) {
+                currentMaxPoints += evoConfig.getInt("max_points.bonuses." + i, 0);
             }
-            FileConfiguration evalConfig = YamlConfiguration.loadConfiguration(evalFile);
+            int currentRecoverSpeed = baseSpeed - (speedLv - 1) * reduction;
 
-            // 3. 获取当前数值 (如果 Map 没读到，则使用配置中的 base_value)
-            int currentMax = rPlace.maxPointsMap.getOrDefault(uuid, evalConfig.getInt("max_points.base_value", 1));
-            int currentSpeed = rPlace.recoverSpeedMap.getOrDefault(uuid, evalConfig.getInt("recover_speed.base_value", 60));
-
-            // 4. 【核心修复】体力上限等级判定 (门槛累加法)
-            int maxLv = 1;
-            int baseMax = evalConfig.getInt("max_points.base_value", 1);
-            int runningThreshold = baseMax;
-
-            for (int lv = 2; lv <= 10; lv++) {
-                int bonusForThisLv = evalConfig.getInt("max_points.bonuses." + lv, 0);
-                // 只有当 bonus 大于 0 且当前值能覆盖该级门槛时，才判定为该等级
-                if (bonusForThisLv > 0 && currentMax >= (runningThreshold + bonusForThisLv)) {
-                    runningThreshold += bonusForThisLv;
-                    maxLv = lv;
-                } else {
-                    break;
-                }
-            }
-
-            // 5. 恢复速度等级判定
-            int speedLv = 1;
-            int baseSpeed = evalConfig.getInt("recover_speed.base_value", 60);
-            int reduction = evalConfig.getInt("recover_speed.reduction_per_level", 4);
-            for (int lv = 2; lv <= 10; lv++) {
-                if (currentSpeed <= (baseSpeed - (lv - 1) * reduction)) {
-                    speedLv = lv;
-                } else {
-                    break;
-                }
-            }
-
-            // --- 渲染 UI ---
+            // 13号位：信息摘要
             gui.setItem(13, createItem(Material.NETHERITE_UPGRADE_SMITHING_TEMPLATE, "§f§l系统属性摘要",
-                    "§7当前体力上限: §f" + currentMax + " §8(等级." + maxLv + ")",
-                    "§7当前恢复周期: §f" + currentSpeed + "s §8(等级." + speedLv + ")",
-                    "", "§8[ 点击下方图标执行升级 ]"));
+                    "§7当前体力上限: §f" + currentMaxPoints + " §8(Lv." + maxLv + ")",
+                    "§7当前恢复周期: §f" + currentRecoverSpeed + "s §8(Lv." + speedLv + ")",
+                    "", "§e§n点击下方图标执行独立升级"));
 
-            // 6. 体力升级图标 (29号位)
-            if (maxLv < 10) {
-                int nextLv = maxLv + 1;
-                long cost = evalConfig.getLong("max_points.costs." + nextLv);
-                int bonus = evalConfig.getInt("max_points.bonuses." + nextLv);
-
-                // 如果 bonus 依然是 0，说明 YML 读取失败或缩进错误
-                String bonusColor = (bonus > 0) ? "§f+" + bonus : "§c§n配置错误";
-                String status = (balance >= cost) ? "§a余额充足" : "§c余额不足 (还差 " + String.format("%,d", (long)(cost - balance)) + ")";
-
-                gui.setItem(29, createItem(Material.CHEST, "§b§l升级：体力上限",
+            // 29号位：体力上限强化
+            int nextMaxLv = maxLv + 1;
+            long maxCost = evoConfig.getLong("max_points.costs." + nextMaxLv, -1);
+            if (maxCost > 0) {
+                int bonus = evoConfig.getInt("max_points.bonuses." + nextMaxLv, 0);
+                String status = (balance >= maxCost) ? "§a余额充足" : "§c余额不足";
+                gui.setItem(29, createItem(Material.CHEST, "§b§l[1] 升级：体力上限",
                         "§7当前等级: §fLv." + maxLv,
-                        "§7下一阶段: §bLv." + nextLv + " (" + bonusColor + "§b)",
-                        "§f消耗金额: §e" + String.format("%,d", cost) + " G",
+                        "§7下一阶段: §bLv." + nextMaxLv + " (§f+" + bonus + "§b)",
+                        "§f消耗金额: §e" + maxCost + " G",
                         "§f资金状态: " + status,
-                        "", "§b[ 点击执行升级 ]"));
+                        "", "§b[ 点击独立升级体力 ]"));
             } else {
-                gui.setItem(29, createItem(Material.ENDER_CHEST, "§a§l体力上限 (MAX)", "§7当前等级: §fLv.10", "§7[ 已达极限 ]"));
+                gui.setItem(29, createItem(Material.ENDER_CHEST, "§a§l体力上限 (MAX)", "§7当前等级: §fLv." + maxLv, "§7[ 已达物理极限 ]"));
             }
 
-            // 7. 速度升级图标 (33号位)
-            if (speedLv < 10) {
-                int nextLv = speedLv + 1;
-                long cost = evalConfig.getLong("recover_speed.costs." + nextLv);
-                int nextVal = baseSpeed - (nextLv - 1) * reduction;
-                String status = (balance >= cost) ? "§a余额充足" : "§c余额不足 (还差 " + String.format("%,d", (long)(cost - balance)) + ")";
-
-                gui.setItem(33, createItem(Material.GLOWSTONE_DUST, "§d§l升级：恢复速率",
+            // 33号位：恢复速率强化
+            int nextSpeedLv = speedLv + 1;
+            long speedCost = evoConfig.getLong("recover_speed.costs." + nextSpeedLv, -1);
+            if (speedCost > 0) {
+                int nextSpeedVal = baseSpeed - (nextSpeedLv - 1) * reduction;
+                String status = (balance >= speedCost) ? "§a余额充足" : "§c余额不足";
+                gui.setItem(33, createItem(Material.GLOWSTONE_DUST, "§d§l[2] 升级：恢复速率",
                         "§7当前等级: §fLv." + speedLv,
-                        "§f下一阶段: §dLv." + nextLv + " (§f" + nextVal + "s§d)",
-                        "§f消耗金额: §e" + String.format("%,d", cost) + " G",
+                        "§7下一阶段: §dLv." + nextSpeedLv + " (§f" + nextSpeedVal + "s§d)",
+                        "§f消耗金额: §e" + speedCost + " G",
                         "§f资金状态: " + status,
-                        "", "§d[ 点击执行升级 ]"));
+                        "", "§d[ 点击独立升级速率 ]"));
             } else {
-                gui.setItem(33, createItem(Material.BEACON, "§a§l恢复速率 (MAX)", "§7当前等级: §fLv.10", "§7[ 已达极限 ]"));
+                gui.setItem(33, createItem(Material.BEACON, "§a§l恢复速率 (MAX)", "§7当前等级: §fLv." + speedLv, "§7[ 已达物理极限 ]"));
             }
 
-            // 8. 重置按钮 (49号位)
+            // 49号位：重置按钮
+            long resetCost = evoConfig.getLong("reset_settings.cost", 5000);
+            int reqClicks = evoConfig.getInt("reset_settings.required_clicks", 10);
             gui.setItem(49, createItem(Material.BARRIER, "§c§l危险操作：属性重置",
-                    "§7将所有进化属性回退至初始状态",
+                    "§7将进化属性回退至 Lv.1",
+                    "§7重置费用: §e" + resetCost + " G",
                     "",
-                    "§c§n需要连续快速点击 20 次执行重置"));
+                    "§4§l需连续点击 " + reqClicks + " 次执行重置",
+                    "§7(不退还已消耗的金币)"));
 
         } else if (row == 2 || row >= 10000) {
             renderRandomShop(gui, player, row);
