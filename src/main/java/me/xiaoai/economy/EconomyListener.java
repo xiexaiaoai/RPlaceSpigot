@@ -67,7 +67,7 @@ public class EconomyListener implements Listener {
         String title = event.getView().getTitle();
         if (title.equals("§0请放入要佩戴的物品")) return;
         if (!title.contains("§0")) return;
-        event.setCancelled(true); // 锁定界面，防止物品被玩家取走
+        event.setCancelled(true);
 
         int slot = event.getRawSlot();
         if (slot < 0 || slot >= 54) return;
@@ -75,11 +75,20 @@ public class EconomyListener implements Listener {
         Player player = (Player) event.getWhoClicked();
         UUID uuid = player.getUniqueId();
         EconomyMainMenu menu = new EconomyMainMenu();
-        int curRow = rowMap.getOrDefault(uuid, 0);
 
-        // 导航栏功能区块 (Slot 17, 26, 35, 44)
+        int curRow = rowMap.getOrDefault(uuid, 0);
+        int curPage = pageMap.getOrDefault(uuid, 0);
+
+        if (slot == 53) {
+            if (curRow == 0 || (curRow > 2 && curRow < 10000)) {
+                handlePagination(event, player, uuid, curPage, curRow, menu);
+                player.playSound(player.getLocation(), Sound.ITEM_BOOK_PAGE_TURN, 1.0f, 1.2f);
+            }
+            return;
+        }
+
         if (slot == 17 || slot == 26 || slot == 35 || slot == 44) {
-            if (slot == 44) { // 特殊跳转：进化中心 (Row 99)
+            if (slot == 44) {
                 rowMap.put(uuid, 99);
                 pageMap.put(uuid, 0);
                 menu.open(player, 0, 99);
@@ -90,17 +99,14 @@ public class EconomyListener implements Listener {
             return;
         }
 
-        // 逻辑分流
         if (curRow == 99) {
             handleEvolutionUpgradeLogic(player, slot, uuid, menu);
         } else if (curRow == 1) {
-            // 账户中心点击处理
             if (slot == 10 || slot == 13 || slot == 16 || slot == 30 || slot == 32) {
                 AccountCenter.handleClick(player, slot);
             }
         } else if (slot % 9 < 7 && event.getCurrentItem() != null) {
-            // 核心交易区 (排除侧边栏)
-            processTrade(player, uuid, slot, pageMap.getOrDefault(uuid, 0), curRow, event.getClick(), menu);
+            processTrade(player, uuid, slot, curPage, curRow, event.getClick(), menu);
         }
     }
 

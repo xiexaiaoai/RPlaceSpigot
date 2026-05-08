@@ -344,7 +344,9 @@ public class EconomyMainMenu {
                 "", "§f永久强化你的体力与回充", "§7让你的灵魂得到跃迁"));
 
         if (row == 0 || (row > 2 && row < 10000)) {
-            gui.setItem(53, createItem(Material.ARROW, "§f当前页码: §e" + (page + 1)));
+            gui.setItem(53, createItem(Material.ARROW, "§f翻页控制 (当前: §e" + (page + 1) + "§f)",
+                    "§7左键: 上一页",
+                    "§7右键: 下一页"));
         }
     }
 

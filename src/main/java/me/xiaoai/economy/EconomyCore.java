@@ -143,7 +143,7 @@ public class EconomyCore {
     public static EconomyCore getInstance() { return instance; }
 
     public double getBalance(UUID uuid) {
-        return getConfig().getDouble("players.data." + uuid.toString() + ".balance", 5000.0);
+        return getConfig().getDouble("players.data." + uuid.toString() + ".balance", 12000.0);
     }
 
     public void setBalance(UUID uuid, double amount) {
