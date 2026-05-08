@@ -1,0 +1,6 @@
+players:
+  data: {}
+random_shop:
+  pool: {}
+shop_settings:
+  last_refresh: 0

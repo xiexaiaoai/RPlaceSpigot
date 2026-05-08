@@ -1,0 +1,11 @@
+name: RPlace
+version: 1.0
+main: me.xiaoai.rplace.RPlace
+api-version: 1.21
+
+commands:
+  rp:
+    description: 画布核心控制指令（设置边界、管理模式等）
+  money:
+    description: 经济系统核心指令，支持菜单打开及管理员子命令
+    aliases: [m, gold]

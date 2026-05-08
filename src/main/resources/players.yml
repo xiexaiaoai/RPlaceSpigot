@@ -1,0 +1,6 @@
+market:
+  items:
+    bread:
+      item: ...
+      price: -1.0
+      stock: 10  # 这里的 10 代表每个玩家最多只能卖/买 10 个

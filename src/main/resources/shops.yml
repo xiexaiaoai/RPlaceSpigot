@@ -1,0 +1,6 @@
+shop_settings:
+  refresh_interval: "24h"
+  random_shop:
+    min_items: 3
+    max_items: 7
+market: {}
