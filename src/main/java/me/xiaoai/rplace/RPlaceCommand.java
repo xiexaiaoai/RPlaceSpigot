@@ -69,6 +69,10 @@ public class RPlaceCommand implements CommandExecutor, TabCompleter {
             showPlayerInfo(player);
             return true;
         }
+        if (args.length == 1 && args[0].equalsIgnoreCase("board")) {
+            plugin.scoreboardManager.toggle(player);
+            return true;
+        }
         // --- 插入这段：处理排行榜指令 ---
         if (args[0].equalsIgnoreCase("top")) {
             openLeaderboard(player, 0);
@@ -495,7 +499,7 @@ public class RPlaceCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             List<String> list = new ArrayList<>();
             // 所有人指令
-            list.addAll(Arrays.asList("help", "info", "top", "msg"));
+            list.addAll(Arrays.asList("help", "info", "top", "msg", "board"));
             // 管理指令
             if (player.hasPermission("rplace.admin")) {
                 list.addAll(Arrays.asList("set", "reward", "limit", "reload", "god"));

@@ -27,6 +27,7 @@ public class RPlace extends JavaPlugin {
     public int defaultRecoverSpeed = 60;
     public double placeReward = 1.0;
 
+
     public String canvasWorld;
     public int minX, maxX, minZ, maxZ;
     public int canvasY;
@@ -35,6 +36,7 @@ public class RPlace extends JavaPlugin {
     private DataManager dataManager;
 
     public enum AdminMode { OFF, BASIC, GOD }
+    public ScoreboardManager scoreboardManager;
 
 
     public static RPlace getInstance() {
@@ -46,18 +48,19 @@ public class RPlace extends JavaPlugin {
         instance = this;
         saveDefaultConfig();
         this.dataManager = new DataManager(this);
+
+        // 在 dataManager 加载之后添加
         dataManager.loadConfigData();
         dataManager.loadRankData();
+        this.scoreboardManager = new ScoreboardManager(this); // 初始化记分板系统
+
         me.xiaoai.economy.AccountCenterManager.init();
 
-        // 2. 注册 RPlace 核心指令与监听器
         RPlaceCommand cmdHandler = new RPlaceCommand(this);
         getCommand("rp").setExecutor(cmdHandler);
         getCommand("rp").setTabCompleter(cmdHandler);
         getServer().getPluginManager().registerEvents(new RPlaceListener(this), this);
 
-        // 【新增：注册菜单绑定逻辑】
-        // 确保这里已经导入了 me.xiaoai.economy.MenuStickinessHandler
         getServer().getPluginManager().registerEvents(new me.xiaoai.economy.MenuStickinessHandler(), this);
 
         // 3. 初始化经济子系统
@@ -79,8 +82,12 @@ public class RPlace extends JavaPlugin {
     */
     @Override
     public void onDisable() {
-        if (dataManager != null) dataManager.saveConfigData();
-        dataManager.saveRankData();
+        if (dataManager != null) {
+            // 确保服务器正常关服、崩溃自动重启或 /reload 时，内存中所有玩家的实时能量和时间戳能立即写回硬盘。
+            dataManager.savePlayerData();
+            dataManager.saveRankData();
+            dataManager.saveConfigData();
+        }
     }
 
 
@@ -103,7 +110,9 @@ public class RPlace extends JavaPlugin {
         long secondsSinceLast = (now - last) / 1000;
 
         return Math.max(0, speed - (secondsSinceLast % speed));
+
     }
+
 
     /* 第五部分：能量点数校验与消耗逻辑
 
@@ -144,7 +153,7 @@ public class RPlace extends JavaPlugin {
         UUID uuid = p.getUniqueId();
         if (adminPlayers.getOrDefault(uuid, AdminMode.OFF) == AdminMode.GOD) return true;
 
-        // 1. 先计算并更新当前的真实体力
+        // 1. 先计算并获取当前的真实体力
         int max = maxPointsMap.getOrDefault(uuid, defaultMaxPoints);
         int speed = recoverSpeedMap.getOrDefault(uuid, defaultRecoverSpeed);
         int current = getRealTimePoints(p);
@@ -153,16 +162,24 @@ public class RPlace extends JavaPlugin {
         long now = System.currentTimeMillis();
         long last = lastRecoverTime.getOrDefault(uuid, now);
         long secondsSinceLast = (now - last) / 1000;
+
         if (secondsSinceLast >= speed && current < max) {
-            lastRecoverTime.put(uuid, now - (secondsSinceLast % speed) * 5000);
+            lastRecoverTime.put(uuid, now - (secondsSinceLast % speed) * 1000);
         } else if (current >= max) {
             lastRecoverTime.put(uuid, now);
         }
 
-        // 3. 执行消耗
+        // 3. 执行消耗并保存结果
         if (current > 0) {
             currentPoints.put(uuid, current - 1);
             if (current == max) lastRecoverTime.put(uuid, now);
+
+            // --- 新增：瞬时反馈刷新 ---
+            if (scoreboardManager != null && scoreboardManager.enabledPlayers.contains(uuid)) {
+                scoreboardManager.updateScoreboard(p);
+            }
+            // -----------------------
+
             return true;
         }
         return false;

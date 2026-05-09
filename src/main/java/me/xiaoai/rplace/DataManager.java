@@ -81,6 +81,54 @@ public class DataManager {
             plugin.getLogger().severe("§c[RPlace] 无法保存 data.yml 排名数据!");
         }
     }
+    /**
+     * 保存所有在线玩家的能量、时间及配置
+     */
+    public void savePlayerData() {
+        for (UUID uuid : plugin.currentPoints.keySet()) {
+            String path = "players." + uuid.toString();
+            dataConfig.set(path + ".current", plugin.currentPoints.get(uuid));
+            dataConfig.set(path + ".lastRecover", plugin.lastRecoverTime.get(uuid));
+            dataConfig.set(path + ".max", plugin.maxPointsMap.getOrDefault(uuid, plugin.defaultMaxPoints));
+            dataConfig.set(path + ".speed", plugin.recoverSpeedMap.getOrDefault(uuid, plugin.defaultRecoverSpeed));
+        }
+        try {
+            dataConfig.save(dataFile);
+        } catch (IOException e) {
+            plugin.getLogger().severe("§c[RPlace] 无法保存玩家动态数据!");
+        }
+    }
+
+    /**
+     * 加载特定玩家数据（建议在 PlayerJoinEvent 调用）
+     */
+    public void saveSinglePlayerData(UUID uuid) {
+        String path = "players." + uuid.toString();
+        dataConfig.set(path + ".current", plugin.currentPoints.getOrDefault(uuid, plugin.defaultMaxPoints));
+        dataConfig.set(path + ".lastRecover", plugin.lastRecoverTime.getOrDefault(uuid, System.currentTimeMillis()));
+        dataConfig.set(path + ".max", plugin.maxPointsMap.getOrDefault(uuid, plugin.defaultMaxPoints));
+        dataConfig.set(path + ".speed", plugin.recoverSpeedMap.getOrDefault(uuid, plugin.defaultRecoverSpeed));
+        try {
+            dataConfig.save(dataFile);
+        } catch (IOException e) {
+            plugin.getLogger().severe("§c[RPlace] 无法为玩家 " + uuid + " 保存单人数据!");
+        }
+    }
+
+    public void loadSinglePlayerData(UUID uuid) {
+        String path = "players." + uuid.toString();
+        if (dataConfig.contains(path)) {
+            plugin.currentPoints.put(uuid, dataConfig.getInt(path + ".current"));
+            plugin.lastRecoverTime.put(uuid, dataConfig.getLong(path + ".lastRecover"));
+            plugin.maxPointsMap.put(uuid, dataConfig.getInt(path + ".max"));
+            plugin.recoverSpeedMap.put(uuid, dataConfig.getInt(path + ".speed"));
+        } else {
+            plugin.currentPoints.put(uuid, plugin.defaultMaxPoints);
+            plugin.lastRecoverTime.put(uuid, System.currentTimeMillis());
+            plugin.maxPointsMap.put(uuid, plugin.defaultMaxPoints);
+            plugin.recoverSpeedMap.put(uuid, plugin.defaultRecoverSpeed);
+        }
+    }
 
     /**
      * 从 data.yml 加载排行榜与留言数据

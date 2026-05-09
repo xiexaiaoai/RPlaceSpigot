@@ -18,6 +18,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
 import org.bukkit.inventory.ItemStack;
 import java.util.Objects;
+import org.bukkit.event.player.PlayerJoinEvent;
 
 public class RPlaceListener implements Listener {
     private final RPlace plugin;
@@ -44,6 +45,7 @@ public class RPlaceListener implements Listener {
        4. 参数与坐标判断：
           如果 你点了剩下的设置图标，则关闭窗口并在聊天框发一段指令模板教你怎么用。
     */
+
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!event.getView().getTitle().equals("§0RPlace 综合管理终端")) return;
@@ -126,6 +128,7 @@ public class RPlaceListener implements Listener {
             }
         }
     }
+
 
     /* 第二部分：破坏方块的规矩（挖方块时谁在拦你）
 
@@ -373,27 +376,40 @@ public class RPlaceListener implements Listener {
           - 如果 玩家是“上帝”模式或者是创造模式，则允许合成。
           - 如果 是普通玩家，则直接拦截合成动作，并弹窗提示。
     */
+    /* 第八部分：合成限制 */
     @org.bukkit.event.EventHandler
     public void onCraft(org.bukkit.event.inventory.CraftItemEvent event) {
         if (!plugin.isCanvasSet) return;
 
-        // 获取点击合成台的玩家
         Player p = (Player) event.getWhoClicked();
 
-        // 检查玩家当前所在的世界是否是画布世界
         if (p.getWorld().getName().equals(plugin.canvasWorld)) {
-
-            // 权限检查：上帝模式和创造模式豁免
             RPlace.AdminMode mode = plugin.adminPlayers.getOrDefault(p.getUniqueId(), RPlace.AdminMode.OFF);
             if (mode == RPlace.AdminMode.GOD || p.getGameMode() == org.bukkit.GameMode.CREATIVE) {
                 return;
             }
 
-            // 拦截合成
             event.setCancelled(true);
             p.sendMessage("§c§lRPlace >> §7在该世界禁止合成物品，以维护画布资源平衡。");
         }
-
     }
 
+    /* 第九部分：玩家入场处理 */
+    // 在 RPlaceListener 类中修改/添加
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        // 玩家进入时：从文件加载数据到 HashMap
+        plugin.getDataManager().loadSinglePlayerData(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler
+    public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        // 玩家退出时：立即将 HashMap 中的数据保存到文件
+        plugin.getDataManager().saveSinglePlayerData(event.getPlayer().getUniqueId());
+    }
+    // 直接删掉或注释掉这部分逻辑
+    @org.bukkit.event.EventHandler
+    public void onQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        // plugin.scoreboardManager.enabledPlayers.remove(event.getPlayer().getUniqueId());
+    }
 }
